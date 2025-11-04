@@ -1,0 +1,99 @@
+name: PHP Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        php-version: ['7.4', '8.0', '8.1', '8.2']
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: ${{ matrix.php-version }}
+        extensions: sockets
+
+    - name: Check PHP version
+      run: php -v
+
+    - name: Syntax check
+      run: php -l AnvizProtocol.php && php -l example_usage.php
+
+    - name: Check coding standards
+      run: |
+        # Basic PSR-12 checks
+        if grep -r '\$  ' *.php; then
+          echo "Spaces before variable found"
+          exit 1
+        fi
+
+    - name: Static analysis
+      run: |
+        # Check for obvious issues
+        if grep -r 'TODO.*FIXME' *.php; then
+          echo "Unresolved TODO/FIXME found"
+        fi
+
+  docker:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Build Docker image
+      run: docker build -t anviz-protocol:test .
+
+    - name: Test Docker image
+      run: |
+        docker run --rm anviz-protocol:test php -v
+        docker run --rm anviz-protocol:test php -l AnvizProtocol.php
+
+  security:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Check for secrets
+      uses: gitleaks/gitleaks-action@v2
+
+    - name: SARIF upload
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: sarif-results.sarif
+      if: always()
+
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.1'
+
+    - name: Run PHP linter
+      run: php -r "
+        \$files = glob('*.php');
+        \$errors = 0;
+        foreach (\$files as \$file) {
+          \$output = shell_exec('php -l ' . escapeshellarg(\$file) . ' 2>&1');
+          if (strpos(\$output, 'No syntax errors') === false) {
+            echo \$output;
+            \$errors++;
+          }
+        }
+        exit(\$errors);
+      "

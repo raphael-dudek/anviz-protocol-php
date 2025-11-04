@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  # Anviz Protocol Service
+  anviz-protocol:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: anviz-protocol:latest
+    container_name: anviz-php
+
+    # Environment variables
+    environment:
+      DEVICE_IP: ${DEVICE_IP:-192.168.1.100}
+      DEVICE_PORT: ${DEVICE_PORT:-5010}
+      DEVICE_ID: ${DEVICE_ID:-5}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      TEST_CONNECTIVITY: ${TEST_CONNECTIVITY:-0}
+
+    # Volume mounts
+    volumes:
+      # Application code
+      - ./AnvizProtocol.php:/app/AnvizProtocol.php:ro
+      - ./example_usage.php:/app/example_usage.php:ro
+      # Logs
+      - ./logs:/app/logs
+
+    # Network settings
+    networks:
+      - anviz-network
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+        reservations:
+          cpus: '0.25'
+          memory: 64M
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  anviz-network:
+    driver: bridge
+
+volumes:
+  logs:
+    driver: local

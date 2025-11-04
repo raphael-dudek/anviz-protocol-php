@@ -1,0 +1,44 @@
+# Logs
+logs/
+*.log
+*.gz
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.phpstorm
+*.php.bak
+
+# OS
+.DS_Store
+Thumbs.db
+
+# PHP
+vendor/
+composer.lock
+.php_cs.cache
+
+# Docker
+docker-compose.override.yml
+.dockerignore
+
+# Build artifacts
+dist/
+build/
+
+# Testing
+tests/coverage/
+.phpunit.result.cache
+
+# Misc
+.history/
+*.tmp
+*.swp
+*~
