@@ -14,9 +14,9 @@ use Anviz\AnvizProtocol;
 // Configuration
 // ============================================================
 
-$DEVICE_IP = '192.168.1.100';      // Anviz device IP address
-$DEVICE_PORT = 5010;                // TCP port (default: 5010)
-$DEVICE_ID = 5;                     // Device ID (default: 5)
+$DEVICE_IP = getenv('DEVICE_IP') ?: '192.168.1.100';  // Anviz device IP address
+$DEVICE_PORT = getenv('DEVICE_PORT') ?: 5010;         // TCP port (default: 5010)
+$DEVICE_ID = getenv('DEVICE_ID') ?: 5;                // Device ID (default: 5)
 
 // ============================================================
 // Initialize Connection
@@ -153,7 +153,14 @@ if ($tcpIpParams) {
 }
 
 // Set TCP/IP parameters (example - modify as needed)
-if ($anviz->setTcpIpParams('192.168.1.100', '255.255.255.0', '192.168.1.1', 5010)) {
+$networkConfig = [
+    'ip_address' => $tcpIpParams['ip_address'], // Neue IP-Adresse
+    'subnet_mask' => $tcpIpParams['subnet_mask'], // Subnetzmaske
+    'gateway' => $tcpIpParams['gateway'], // Gateway
+    'port' => $tcpIpParams['port'] // (Optional) Port
+];
+
+if ($anviz->setTcpIpParams($networkConfig)) {
     echo "TCP/IP parameters set successfully\n";
 }
 
@@ -171,9 +178,9 @@ if ($timezone) {
 }
 
 // Set timezone (example: UTC+1, no daylight saving)
-if ($anviz->setTimezone(1, false)) {
-    echo "Timezone set successfully\n";
-}
+//if ($anviz->setTimezone(1, false)) {
+//    echo "Timezone set successfully\n";
+//}
 
 // ============================================================
 // DEVICE CONTROL

@@ -11,9 +11,9 @@ services:
 
     # Environment variables
     environment:
-      DEVICE_IP: ${DEVICE_IP:-192.168.1.100}
+      DEVICE_IP: ${DEVICE_IP:-192.168.2.55}
       DEVICE_PORT: ${DEVICE_PORT:-5010}
-      DEVICE_ID: ${DEVICE_ID:-5}
+      DEVICE_ID: ${DEVICE_ID:-8210}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       TEST_CONNECTIVITY: ${TEST_CONNECTIVITY:-0}
 

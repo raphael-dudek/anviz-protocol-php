@@ -13,6 +13,10 @@
 
 namespace Anviz;
 
+use DateTime;
+use Exception;
+use InvalidArgumentException;
+
 class AnvizProtocol
 {
     // Command Codes
@@ -51,15 +55,21 @@ class AnvizProtocol
     private const CMD_SET_ADVANCED_INFO = 0x35;
     private const CMD_GET_FACEPASS_TEMPLATES = 0x98;
     private const CMD_SET_FACEPASS_TEMPLATES = 0x99;
+    private const CMD_GET_DEVICE_ADVANCED_INFO = 0x34;
+    private const CMD_ENROLL_CARD = 0x64;
+    private const CMD_DELETE_RECORD = 0x4E;
+    private const CMD_GET_DST_RULES = 0xB4;
+    private const CMD_SET_DST_RULES = 0xB5;
+
 
     // Packet Constants
     private const PACKET_HEADER = 0xA5;
     private const SOCKET_TIMEOUT = 5;
 
     private $socket = null;
-    private $host = '';
-    private $port = 5010;
-    private $deviceId = 0;
+    private $host;
+    private $port;
+    private $deviceId;
     private $connected = false;
 
     /**
@@ -69,7 +79,7 @@ class AnvizProtocol
      * @param int $port TCP Port (default 5010)
      * @param int $deviceId Device ID
      */
-    public function __construct($host, $port = 5010, $deviceId = 5)
+    public function __construct(string $host, int $port = 5010, int $deviceId = 5)
     {
         $this->host = $host;
         $this->port = $port;
@@ -81,7 +91,7 @@ class AnvizProtocol
      * 
      * @return bool Connection status
      */
-    public function connect()
+    public function connect(): bool
     {
         $this->socket = @fsockopen($this->host, $this->port, $errno, $errstr, self::SOCKET_TIMEOUT);
 
@@ -96,7 +106,7 @@ class AnvizProtocol
     }
 
     /**
-     * Disconnect from device
+     * Disconnect from the device
      */
     public function disconnect()
     {
@@ -114,7 +124,7 @@ class AnvizProtocol
      * @param array $bytes Byte array without header and device ID
      * @return array [low_byte, high_byte]
      */
-    private function calculateChecksum($bytes)
+    private function calculateChecksum(array $bytes): array
     {
         $crc = 0xFFFF;
 
@@ -137,13 +147,13 @@ class AnvizProtocol
     }
 
     /**
-     * Build command packet
+     * Build the command packet
      * 
      * @param int $command Command code
      * @param array $data Command data
      * @return string Hex packet string
      */
-    private function buildPacket($command, $data = [])
+    private function buildPacket(int $command, array $data = []): string
     {
         $packet = [];
 
@@ -177,13 +187,13 @@ class AnvizProtocol
     }
 
     /**
-     * Send command to device
+     * Send command to the device
      * 
      * @param int $command Command code
      * @param array $data Command data
      * @return string Response hex string
      */
-    private function sendCommand($command, $data = [])
+    private function sendCommand(int $command, array $data = []): ?string
     {
         if (!$this->connected || !$this->socket) {
             $this->logError("Device not connected");
@@ -198,7 +208,7 @@ class AnvizProtocol
             $binary .= chr(hexdec(substr($packet, $i, 2)));
         }
 
-        // Send packet
+        // Send the packet
         if (fwrite($this->socket, $binary) === false) {
             $this->logError("Failed to send command");
             return null;
@@ -209,11 +219,11 @@ class AnvizProtocol
     }
 
     /**
-     * Read response from device
+     * Read response from the device
      * 
      * @return string Response hex string
      */
-    private function readResponse()
+    private function readResponse(): string
     {
         $response = '';
         $buffer = '';
@@ -246,7 +256,7 @@ class AnvizProtocol
      * 
      * @return array|null [year, month, day, hour, minute, second]
      */
-    public function getDeviceClock()
+    public function getDeviceClock(): ?array
     {
         $response = $this->sendCommand(self::CMD_GET_DEVICE_CLOCK);
 
@@ -275,10 +285,10 @@ class AnvizProtocol
      * @param string $dateTime DateTime string (YYYY-MM-DD HH:MM:SS)
      * @return bool Success status
      */
-    public function setDeviceClock($dateTime)
+    public function setDeviceClock(string $dateTime): bool
     {
         try {
-            $dt = \DateTime::createFromFormat('Y-m-d H:i:s', $dateTime);
+            $dt = DateTime::createFromFormat('Y-m-d H:i:s', $dateTime);
             if (!$dt) return false;
 
             $data = [
@@ -293,10 +303,240 @@ class AnvizProtocol
 
             $response = $this->sendCommand(self::CMD_SET_DEVICE_CLOCK, $data);
             return $response !== null;
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $this->logError("Error setting device clock: " . $e->getMessage());
             return false;
         }
+    }
+
+    // ========== V2.0: NEW METHODS - CATEGORY 3 ==========
+
+    /**
+     * Get device configuration 2 (Advanced Settings)
+     * Command: 0x32
+     */
+    public function getDeviceConfiguration2(): ?array
+    {
+        $response = $this->sendCommand(self::CMD_GET_DEVICE_CONFIG_2);
+
+        if (!$response) {
+            return null;
+        }
+
+        $bytes = str_split($response, 2);
+
+        return [
+            'fingerprint_threshold' => hexdec($bytes[5] ?? '00'),
+            'card_detection_time' => hexdec($bytes[6] ?? '00'),
+            'raw_response' => $response
+        ];
+    }
+
+    /**
+     * Get the device advanced information
+     * Command: 0x34
+     */
+    public function getDeviceAdvancedInfo(): ?array
+    {
+        $response = $this->sendCommand(self::CMD_GET_DEVICE_ADVANCED_INFO);
+
+        if (!$response) {
+            return null;
+        }
+
+        $bytes = str_split($response, 2);
+
+        return [
+            'total_users' => hexdec($bytes[5] ?? '00') | (hexdec($bytes[6] ?? '00') << 8),
+            'total_records' => hexdec($bytes[7] ?? '00') | (hexdec($bytes[8] ?? '00') << 8),
+            'total_templates' => hexdec($bytes[9] ?? '00') | (hexdec($bytes[10] ?? '00') << 8),
+            'device_status' => hexdec($bytes[11] ?? '00'),
+            'raw_response' => $response
+        ];
+    }
+
+    // ========== V2.0: NEW METHODS - CATEGORY 4 ==========
+
+    /**
+     * Enroll fingerprint for user
+     * Command: 0x63
+     */
+    public function enrollFingerprint($userId, $fingerIndex = 1, $options = []): bool
+    {
+        $data = [
+            $userId & 0xFF,
+            ($userId >> 8) & 0xFF,
+            $fingerIndex & 0xFF,
+            $options['quality_threshold'] ?? 80
+        ];
+
+        $response = $this->sendCommand(self::CMD_ENROLL_FINGERPRINT, $data);
+
+        if ($response) {
+            $this->logInfo("Fingerprint enrollment initiated for user $userId");
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Enroll RFID card for user
+     * Command: 0x64
+     */
+    public function enrollCard($userId, $cardNumber): bool
+    {
+        if (!is_numeric($cardNumber)) {
+            $this->logError("Invalid card number: $cardNumber");
+            return false;
+        }
+
+        $data = [];
+        $data[] = $userId & 0xFF;
+        $data[] = ($userId >> 8) & 0xFF;
+
+        $cardBytes = str_split($cardNumber);
+        foreach ($cardBytes as $byte) {
+            $data[] = ord($byte);
+        }
+
+        $response = $this->sendCommand(self::CMD_ENROLL_CARD, $data);
+
+        return $response !== null;
+    }
+
+    /**
+     * Delete specific record
+     * Command: 0x4E
+     */
+    public function deleteRecord($recordIndex): bool
+    {
+        $data = [
+            $recordIndex & 0xFF,
+            ($recordIndex >> 8) & 0xFF
+        ];
+
+        $response = $this->sendCommand(self::CMD_DELETE_RECORD, $data);
+
+        if ($response) {
+            $this->logInfo("Record $recordIndex deleted");
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Get bell/schedule configuration
+     * Command: 0xB2
+     */
+    public function getBellSchedule(): ?array
+    {
+        $response = $this->sendCommand(self::CMD_GET_BELL_SCHEDULE);
+
+        if (!$response) {
+            return null;
+        }
+
+        $bytes = str_split($response, 2);
+        $schedules = [];
+
+        for ($i = 0; $i < 8; $i++) {
+            $offset = 5 + ($i * 4);
+            if ($offset + 3 < count($bytes)) {
+                $schedules[] = [
+                    'time' => sprintf('%02d:%02d',
+                        hexdec($bytes[$offset] ?? '00'),
+                        hexdec($bytes[$offset + 1] ?? '00')
+                    ),
+                    'melody' => hexdec($bytes[$offset + 2] ?? '00'),
+                    'volume' => hexdec($bytes[$offset + 3] ?? '00')
+                ];
+            }
+        }
+
+        return [
+            'schedules' => $schedules,
+            'raw_response' => $response
+        ];
+    }
+
+    /**
+     * Set bell/schedule configuration
+     * Command: 0xB3
+     */
+    public function setBellSchedule($schedules): bool
+    {
+        $data = [];
+
+        foreach (array_slice($schedules, 0, 8) as $schedule) {
+            $timeParts = explode(':', $schedule['time']);
+            $data[] = (int)$timeParts[0];
+            $data[] = (int)$timeParts[1];
+            $data[] = $schedule['melody'] ?? 0;
+            $data[] = $schedule['volume'] ?? 100;
+        }
+
+        $response = $this->sendCommand(self::CMD_SET_BELL_SCHEDULE, $data);
+
+        if ($response) {
+            $this->logInfo("Bell schedule updated");
+        }
+
+        return $response !== null;
+    }
+
+    /**
+     * Get Daylight Saving Time rules
+     * Command: 0xB4
+     */
+    public function getDSTRules(): ?array
+    {
+        $response = $this->sendCommand(self::CMD_GET_DST_RULES);
+
+        if (!$response) {
+            return null;
+        }
+
+        $bytes = str_split($response, 2);
+
+        return [
+            'dst_start_month' => hexdec($bytes[5] ?? '00'),
+            'dst_start_week' => hexdec($bytes[6] ?? '00'),
+            'dst_start_day' => hexdec($bytes[7] ?? '00'),
+            'dst_start_hour' => hexdec($bytes[8] ?? '00'),
+            'dst_end_month' => hexdec($bytes[9] ?? '00'),
+            'dst_end_week' => hexdec($bytes[10] ?? '00'),
+            'dst_end_day' => hexdec($bytes[11] ?? '00'),
+            'dst_end_hour' => hexdec($bytes[12] ?? '00'),
+            'raw_response' => $response
+        ];
+    }
+
+    /**
+     * Set Daylight Saving Time rules
+     * Command: 0xB5
+     */
+    public function setDSTRules($dstConfig): bool
+    {
+        $data = [
+            $dstConfig['start_month'] ?? 3,
+            $dstConfig['start_week'] ?? 2,
+            $dstConfig['start_day'] ?? 0,
+            $dstConfig['start_hour'] ?? 2,
+            $dstConfig['end_month'] ?? 10,
+            $dstConfig['end_week'] ?? 1,
+            $dstConfig['end_day'] ?? 0,
+            $dstConfig['end_hour'] ?? 3
+        ];
+
+        $response = $this->sendCommand(self::CMD_SET_DST_RULES, $data);
+
+        if ($response) {
+            $this->logInfo("DST rules updated");
+        }
+
+        return $response !== null;
     }
 
     // ============================================================
@@ -309,7 +549,7 @@ class AnvizProtocol
      * 
      * @return string|null Device serial number
      */
-    public function getDeviceSerialNumber()
+    public function getDeviceSerialNumber(): ?string
     {
         $response = $this->sendCommand(self::CMD_GET_DEVICE_SN);
 
@@ -336,7 +576,7 @@ class AnvizProtocol
      * 
      * @return int|null Device ID
      */
-    public function getDeviceID()
+    public function getDeviceID(): ?int
     {
         $response = $this->sendCommand(self::CMD_GET_DEVICE_ID);
 
@@ -357,11 +597,10 @@ class AnvizProtocol
      * 
      * @return string|null Device type
      */
-    public function getDeviceType()
+    public function getDeviceType(): ?string
     {
         // Implementation depends on specific device response format
-        $response = $this->sendCommand(0x50);
-        return $response;
+        return $this->sendCommand(0x50);
     }
 
     /**
@@ -370,7 +609,7 @@ class AnvizProtocol
      * 
      * @return array|null Device configuration
      */
-    public function getDeviceConfig()
+    public function getDeviceConfig(): ?array
     {
         $response = $this->sendCommand(self::CMD_GET_DEVICE_CONFIG_1);
 
@@ -391,7 +630,7 @@ class AnvizProtocol
      * @param string $response Hex response string
      * @return array Parsed configuration
      */
-    private function parseDeviceConfig($response)
+    private function parseDeviceConfig(string $response): array
     {
         $bytes = str_split($response, 2);
         $config = [];
@@ -414,7 +653,7 @@ class AnvizProtocol
      * 
      * @return array|null Staff data
      */
-    public function downloadStaffData()
+    public function downloadStaffData(): ?array
     {
         $response = $this->sendCommand(self::CMD_DOWNLOAD_STAFF_DATA);
 
@@ -431,15 +670,38 @@ class AnvizProtocol
     /**
      * Upload staff data
      * Command: 0x3D
-     * 
-     * @param array $staffData Staff information array
+     *
+     * @param array $users Staff information array
      * @return bool Success status
      */
-    public function uploadStaffData($staffData)
+    public function uploadStaffData(array $users): bool
     {
-        // Implementation requires encoding staff data according to protocol
-        $this->logError("uploadStaffData: Not yet fully implemented");
-        return false;
+        if (empty($users)) {
+            $this->logError("No user data provided");
+            return false;
+        }
+
+        $data = [];
+
+        foreach ($users as $user) {
+            $data[] = $user['id'] & 0xFF;
+            $data[] = ($user['id'] >> 8) & 0xFF;
+
+            $name = str_pad($user['name'] ?? '', 20);
+            for ($i = 0; $i < 20; $i++) {
+                $data[] = ord($name[$i]);
+            }
+
+            $data[] = $user['department'] ?? 0;
+        }
+
+        $response = $this->sendCommand(self::CMD_UPLOAD_STAFF_DATA, $data);
+
+        if ($response) {
+            $this->logInfo("Staff data uploaded: " . count($users) . " users");
+        }
+
+        return $response !== null;
     }
 
     /**
@@ -449,7 +711,7 @@ class AnvizProtocol
      * @param int $userId User ID to delete
      * @return bool Success status
      */
-    public function deleteUser($userId)
+    public function deleteUser(int $userId): bool
     {
         $data = [
             ($userId & 0xFF),
@@ -469,18 +731,32 @@ class AnvizProtocol
     /**
      * Download attendance records
      * Command: 0x4C
-     * 
+     *
      * @return array|null Records data
      */
-    public function downloadRecords()
+    public function downloadRecords($options = []): ?array
     {
-        $response = $this->sendCommand(self::CMD_DOWNLOAD_RECORDS);
+        $startIndex = $options['start_index'] ?? 0;
+        $count = $options['count'] ?? 0xFFFF;
+
+        $data = [
+            $startIndex & 0xFF,
+            ($startIndex >> 8) & 0xFF,
+            $count & 0xFF,
+            ($count >> 8) & 0xFF
+        ];
+
+        $response = $this->sendCommand(self::CMD_DOWNLOAD_RECORDS, $data);
 
         if (!$response) {
             return null;
         }
 
-        return $this->parseRecords($response);
+        return [
+            'total_records' => $this->parseRecordCount($response),
+            'records' => $this->parseAttendanceRecords($response),
+            'raw_response' => $response
+        ];
     }
 
     /**
@@ -489,7 +765,7 @@ class AnvizProtocol
      * 
      * @return array|null New records data
      */
-    public function downloadNewRecords()
+    public function downloadNewRecords(): ?array
     {
         $response = $this->sendCommand(self::CMD_DOWNLOAD_NEW_RECORDS);
 
@@ -506,9 +782,9 @@ class AnvizProtocol
      * @param string $response Hex response string
      * @return array Parsed records
      */
-    private function parseRecords($response)
+    private function parseRecords(string $response): array
     {
-        $bytes = str_split($response, 2);
+        //$bytes = str_split($response, 2);
         $records = [];
 
         // Parse based on Anviz protocol specification
@@ -545,13 +821,25 @@ class AnvizProtocol
     /**
      * Clear records
      * Command: 0x4D
-     * 
+     *
+     * @param bool $confirm confirmation to delete records
      * @return bool Success status
      */
-    public function clearRecords()
+    public function clearRecords(bool $confirm = false): bool
     {
+        if (!$confirm) {
+            $this->logWarning("Record deletion requires confirmation");
+            return false;
+        }
+
         $response = $this->sendCommand(self::CMD_CLEAR_RECORDS);
-        return $response !== null;
+
+        if ($response) {
+            $this->logInfo("All records cleared from device");
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -560,7 +848,7 @@ class AnvizProtocol
      * 
      * @return array|null Record information
      */
-    public function getRecordInfo()
+    public function getRecordInfo(): ?array
     {
         $response = $this->sendCommand(self::CMD_GET_RECORDS_INFO);
 
@@ -588,15 +876,25 @@ class AnvizProtocol
      * 
      * @return array|null Network parameters
      */
-    public function getTcpIpParams()
+    public function getTcpIpParams(): ?array
     {
         $response = $this->sendCommand(self::CMD_GET_TCP_IP_PARAMS);
 
-        if (!$response || strlen($response) < 40) {
+        if (!$response || strlen($response) < 50) {
             return null;
         }
 
-        return $this->parseTcpIpParams($response);
+        $bytes = str_split($response, 2);
+
+        return [
+            'ip_address' => $this->parseIPAddress($bytes, 5),
+            'subnet_mask' => $this->parseIPAddress($bytes, 9),
+            'gateway' => $this->parseIPAddress($bytes, 13),
+            'port' => hexdec($bytes[17] ?? '00') | (hexdec($bytes[18] ?? '00') << 8),
+            'dns_primary' => isset($bytes[19]) ? $this->parseIPAddress($bytes, 19) : null,
+            'dns_secondary' => isset($bytes[23]) ? $this->parseIPAddress($bytes, 23) : null,
+            'raw_response' => $response
+        ];
     }
 
     /**
@@ -605,7 +903,7 @@ class AnvizProtocol
      * @param string $response Hex response string
      * @return array Network parameters
      */
-    private function parseTcpIpParams($response)
+    private function parseTcpIpParams(string $response): array
     {
         $bytes = str_split($response, 2);
 
@@ -639,41 +937,50 @@ class AnvizProtocol
     /**
      * Set TCP/IP parameters
      * Command: 0x5D
-     * 
-     * @param string $ipAddress IP address
-     * @param string $subnetMask Subnet mask
-     * @param string $gateway Gateway address
-     * @param int $port Port number
+     *
+     * @param array $config
      * @return bool Success status
      */
-    public function setTcpIpParams($ipAddress, $subnetMask, $gateway, $port = 5010)
+    public function setTcpIpParams(array $config): bool
     {
+        $this->validateIPConfig($config);
+
         $data = [];
 
-        // Parse and add IP address
-        $ipParts = explode('.', $ipAddress);
+        $ipParts = explode('.', $config['ip_address']);
         foreach ($ipParts as $part) {
-            $data[] = intval($part);
+            $data[] = (int)$part;
         }
 
-        // Parse and add subnet mask
-        $maskParts = explode('.', $subnetMask);
+        $maskParts = explode('.', $config['subnet_mask']);
         foreach ($maskParts as $part) {
-            $data[] = intval($part);
+            $data[] = (int)$part;
         }
 
-        // Parse and add gateway
-        $gwParts = explode('.', $gateway);
+        $gwParts = explode('.', $config['gateway']);
         foreach ($gwParts as $part) {
-            $data[] = intval($part);
+            $data[] = (int)$part;
         }
 
-        // Add port
+        $port = (int)($config['port'] ?? 5010);
         $data[] = $port & 0xFF;
         $data[] = ($port >> 8) & 0xFF;
 
+        if (isset($config['dns_primary'])) {
+            $dnsParts = explode('.', $config['dns_primary']);
+            foreach ($dnsParts as $part) {
+                $data[] = (int)$part;
+            }
+        }
+
         $response = $this->sendCommand(self::CMD_SET_TCP_IP_PARAMS, $data);
-        return $response !== null;
+
+        if ($response) {
+            $this->logInfo("Network configuration updated");
+            return true;
+        }
+
+        return false;
     }
 
     // ============================================================
@@ -686,7 +993,7 @@ class AnvizProtocol
      * 
      * @return array|null Timezone information
      */
-    public function getTimezone()
+    public function getTimezone(): ?array
     {
         $response = $this->sendCommand(self::CMD_GET_TIMEZONE);
 
@@ -695,35 +1002,56 @@ class AnvizProtocol
         }
 
         $bytes = str_split($response, 2);
+        $offset = $this->parseSignedByte($bytes[5] ?? '00');
 
         return [
-            'timezone_offset' => hexdec($bytes[5] ?? '00'),
-            'daylight_saving' => hexdec($bytes[6] ?? '00'),
+            'timezone_offset_hours' => $offset,
+            'timezone_offset_minutes' => hexdec($bytes[6] ?? '00'),
+            'daylight_saving_enabled' => (bool)(hexdec($bytes[7] ?? '00')),
+            'timezone_name' => $this->getTimezoneName($offset),
             'raw_response' => $response
         ];
     }
 
+    // ============================================================
+
+
     /**
      * Set timezone information
      * Command: 0xB1
-     * 
-     * @param int $timezoneOffset Timezone offset in hours
+     *
+     * @param int $offset Timezone offset in hours
      * @param bool $daylightSaving Enable daylight saving
+     * @param int $minutes Timezone offset in minutes
      * @return bool Success status
      */
-    public function setTimezone($timezoneOffset, $daylightSaving = false)
+    public function setTimezone(int $offset, bool $daylightSaving = false, int $minutes = 0): bool
     {
+        if ($offset < -12 || $offset > 14) {
+            $this->logError("Invalid timezone offset: $offset");
+            return false;
+        }
+
+        $offsetByte = $offset & 0xFF;
+        if ($offset < 0) {
+            $offsetByte = (256 + $offset) & 0xFF;
+        }
+
         $data = [
-            $timezoneOffset & 0xFF,
-            (($timezoneOffset >> 8) & 0xFF),
+            $offsetByte,
+            $minutes & 0xFF,
             $daylightSaving ? 0x01 : 0x00
         ];
 
         $response = $this->sendCommand(self::CMD_SET_TIMEZONE, $data);
-        return $response !== null;
-    }
 
-    // ============================================================
+        if ($response) {
+            $this->logInfo("Timezone set to UTC$offset:$minutes");
+            return true;
+        }
+
+        return false;
+    }
     // DEVICE CONTROL
     // ============================================================
 
@@ -733,7 +1061,7 @@ class AnvizProtocol
      * 
      * @return bool Success status
      */
-    public function openDoor()
+    public function openDoor(): bool
     {
         $response = $this->sendCommand(self::CMD_OPEN_DOOR);
         return $response !== null;
@@ -745,7 +1073,7 @@ class AnvizProtocol
      * 
      * @return bool Success status
      */
-    public function rebootDevice()
+    public function rebootDevice(): bool
     {
         $response = $this->sendCommand(self::CMD_REBOOT_DEVICE);
         return $response !== null;
@@ -757,7 +1085,7 @@ class AnvizProtocol
      * 
      * @return bool Success status
      */
-    public function factoryReset()
+    public function factoryReset(): bool
     {
         $response = $this->sendCommand(self::CMD_FACTORY_RESET);
         return $response !== null;
@@ -773,7 +1101,7 @@ class AnvizProtocol
      * 
      * @return bool Device is online
      */
-    public function ping()
+    public function ping(): bool
     {
         $response = $this->sendCommand(self::CMD_PING);
         return $response !== null;
@@ -783,21 +1111,175 @@ class AnvizProtocol
      * Get device pings (Real-time support)
      * Command: 0x85
      * 
-     * @return bool|string Ping response
+     * @return string|null Ping response
      */
-    public function devicePings()
+    public function devicePings(): ?string
     {
         return $this->sendCommand(self::CMD_DEVICE_PINGS);
     }
 
     /**
-     * Log error message
-     * 
-     * @param string $message Error message
+     * Parse IP address from the byte array
+     */
+    private function parseIPAddress($bytes, $offset): string
+    {
+        return sprintf('%d.%d.%d.%d',
+            hexdec($bytes[$offset] ?? '00'),
+            hexdec($bytes[$offset + 1] ?? '00'),
+            hexdec($bytes[$offset + 2] ?? '00'),
+            hexdec($bytes[$offset + 3] ?? '00')
+        );
+    }
+
+    /**
+     * Parse signed byte (handle negative numbers)
+     */
+    private function parseSignedByte($hex)
+    {
+        $byte = hexdec($hex);
+        if ($byte > 127) {
+            $byte = $byte - 256;
+        }
+        return $byte;
+    }
+
+    /**
+     * Get timezone name from offset
+     */
+    private function getTimezoneName($offset): string
+    {
+        $timezones = [
+            -12 => 'UTC-12 (Baker Island)',
+            -11 => 'UTC-11 (Samoa)',
+            -10 => 'UTC-10 (Hawaii)',
+            -9 => 'UTC-9 (Alaska)',
+            -8 => 'UTC-8 (Pacific)',
+            -7 => 'UTC-7 (Mountain)',
+            -6 => 'UTC-6 (Central)',
+            -5 => 'UTC-5 (Eastern)',
+            -4 => 'UTC-4 (Atlantic)',
+            -3 => 'UTC-3 (Brasilia)',
+            -2 => 'UTC-2 (Mid-Atlantic)',
+            -1 => 'UTC-1 (Azores)',
+            0 => 'UTC+0 (London)',
+            1 => 'UTC+1 (Berlin)',
+            2 => 'UTC+2 (Cairo)',
+            3 => 'UTC+3 (Moscow)',
+            4 => 'UTC+4 (Dubai)',
+            5 => 'UTC+5 (Pakistan)',
+            6 => 'UTC+6 (Bangladesh)',
+            7 => 'UTC+7 (Bangkok)',
+            8 => 'UTC+8 (Shanghai)',
+            9 => 'UTC+9 (Tokyo)',
+            10 => 'UTC+10 (Sydney)',
+            11 => 'UTC+11 (Solomon Islands)',
+            12 => 'UTC+12 (New Zealand)',
+            13 => 'UTC+13 (Fiji)',
+            14 => 'UTC+14 (Line Islands)'
+        ];
+
+        return $timezones[$offset] ?? "UTC$offset";
+    }
+
+
+    /**
+     * Parse record count
+     */
+    private function parseRecordCount($response): int
+    {
+        $bytes = str_split($response, 2);
+        return hexdec($bytes[5] ?? '00') |
+            (hexdec($bytes[6] ?? '00') << 8) |
+            (hexdec($bytes[7] ?? '00') << 16);
+    }
+
+    /**
+     * Parse attendance records from response
+     */
+    private function parseAttendanceRecords($response): array
+    {
+        //$bytes = str_split($response, 2);
+        $records = [];
+        $recordSize = 16;
+
+        $totalRecords = floor((strlen($response) - 30) / ($recordSize * 2));
+
+        for ($i = 0; $i < $totalRecords; $i++) {
+            $offset = (15 + ($i * $recordSize)) * 2;
+
+            if ($offset + ($recordSize * 2) <= strlen($response)) {
+                $recordHex = substr($response, $offset, $recordSize * 2);
+                $recordBytes = str_split($recordHex, 2);
+
+                if (count($recordBytes) >= 12) {
+                    $records[] = [
+                        'user_id' => hexdec($recordBytes[0] ?? '00') |
+                            (hexdec($recordBytes[1] ?? '00') << 8),
+                        'datetime' => sprintf(
+                            '%04d-%02d-%02d %02d:%02d:%02d',
+                            2000 + hexdec($recordBytes[6] ?? '00'),
+                            hexdec($recordBytes[7] ?? '00'),
+                            hexdec($recordBytes[8] ?? '00'),
+                            hexdec($recordBytes[9] ?? '00'),
+                            hexdec($recordBytes[10] ?? '00'),
+                            hexdec($recordBytes[11] ?? '00')
+                        ),
+                        'status' => hexdec($recordBytes[12] ?? '00')
+                    ];
+                }
+            }
+        }
+
+        return $records;
+    }
+
+    /**
+     * Validate IP configuration
+     */
+    private function validateIPConfig($config)
+    {
+        $required = ['ip_address', 'subnet_mask', 'gateway'];
+        foreach ($required as $key) {
+            if (!isset($config[$key])) {
+                throw new InvalidArgumentException("Missing required field: $key");
+            }
+            if (!$this->isValidIPAddress($config[$key])) {
+                throw new InvalidArgumentException("Invalid IP address: $config[$key]");
+            }
+        }
+    }
+
+    /**
+     * Validate IP address format
+     */
+    private function isValidIPAddress($ip): bool
+    {
+        return filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false;
+    }
+
+
+    /**
+     * Log error
      */
     private function logError($message)
     {
-        error_log("[Anviz Protocol] " . date('Y-m-d H:i:s') . " - " . $message);
+        error_log("[Anviz ERROR] " . date('Y-m-d H:i:s') . " - " . $message);
+    }
+
+    /**
+     * Log info
+     */
+    private function logInfo($message)
+    {
+        error_log("[Anviz INFO] " . date('Y-m-d H:i:s') . " - " . $message);
+    }
+
+    /**
+     * Log warning
+     */
+    private function logWarning($message)
+    {
+        error_log("[Anviz WARNING] " . date('Y-m-d H:i:s') . " - " . $message);
     }
 
     /**
@@ -805,7 +1287,7 @@ class AnvizProtocol
      * 
      * @return bool Connection status
      */
-    public function isConnected()
+    public function isConnected(): bool
     {
         return $this->connected;
     }

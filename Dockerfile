@@ -10,7 +10,6 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     git \
     curl \
-    sockets \
     && rm -rf /var/lib/apt/lists/*
 
 # Enable PHP sockets extension
