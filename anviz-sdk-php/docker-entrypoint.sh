@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Anviz Protocol Docker Entrypoint
 # Validates environment and runs PHP application
@@ -38,6 +38,7 @@ echo "Environment:"
 echo "  DEVICE_IP: $DEVICE_IP"
 echo "  DEVICE_PORT: $DEVICE_PORT"
 echo "  DEVICE_ID: $DEVICE_ID"
+echo "  DEVICE_PASSWORD: ${DEVICE_PASSWORD:-(not set)}"
 echo "  LOG_LEVEL: ${LOG_LEVEL:-INFO}"
 echo ""
 

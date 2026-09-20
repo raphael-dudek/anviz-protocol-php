@@ -1,0 +1,46 @@
+services:
+  anviz-sdk:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: anviz-sdk-php
+    volumes:
+      - .:/var/www/html
+      - ./logs:/var/www/html/logs
+    environment:
+      - PHP_DISPLAY_ERRORS=1
+      - PHP_ERROR_REPORTING=E_ALL
+      - DEVICE_IP=192.168.2.57
+      - DEVICE_PORT=5010
+      - DEVICE_ID=8542
+      - DEVICE_PASSWORD=0
+      - LOG_LEVEL=DEBUG
+    network_mode: host
+    tty: true
+    stdin_open: true
+
+  # Optional: Web-basiertes Dashboard
+  anviz-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: anviz-web
+    ports:
+      - "8080:80"
+    volumes:
+      - ./web:/var/www/html/web
+      - ./logs:/var/www/html/logs
+    environment:
+      - DEVICE_IP=192.168.2.57
+      - DEVICE_PORT=5010
+      - DEVICE_ID=8541
+      - DEVICE_PASSWORD=0
+      - LOG_LEVEL=INFO
+      - TEST_CONNECTIVITY=1
+    network_mode: host
+    depends_on:
+      - anviz-sdk
+
+networks:
+  anviz-network:
+    driver: bridge

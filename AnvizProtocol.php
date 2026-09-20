@@ -40,7 +40,8 @@ class AnvizProtocol
     private const CMD_UPLOAD_FINGERPRINT = 0x41;
     private const CMD_DELETE_USER = 0x92;
     private const CMD_ENROLL_FINGERPRINT = 0x63;
-    private const CMD_GET_TCP_IP_PARAMS = 0x5C;
+#    private const CMD_GET_TCP_IP_PARAMS = 0x5C;
+    private const CMD_GET_TCP_IP_PARAMS = 0x3A;
     private const CMD_SET_TCP_IP_PARAMS = 0x5D;
     private const CMD_GET_TIMEZONE = 0xB0;
     private const CMD_SET_TIMEZONE = 0xB1;
@@ -64,7 +65,7 @@ class AnvizProtocol
 
     // Packet Constants
     private const PACKET_HEADER = 0xA5;
-    private const SOCKET_TIMEOUT = 5;
+    private const SOCKET_TIMEOUT = 500;
 
     private $socket = null;
     private $host;
@@ -161,10 +162,10 @@ class AnvizProtocol
         $packet[] = self::PACKET_HEADER;
 
         // Device ID (4 bytes, little-endian)
-        $packet[] = $this->deviceId & 0xFF;
-        $packet[] = ($this->deviceId >> 8) & 0xFF;
-        $packet[] = ($this->deviceId >> 16) & 0xFF;
         $packet[] = ($this->deviceId >> 24) & 0xFF;
+        $packet[] = ($this->deviceId >> 16) & 0xFF;
+        $packet[] = ($this->deviceId >> 8) & 0xFF;
+        $packet[] = $this->deviceId & 0xFF;
 
         // Command Code
         $packet[] = $command;
@@ -261,6 +262,7 @@ class AnvizProtocol
         $response = $this->sendCommand(self::CMD_GET_DEVICE_CLOCK);
 
         if (!$response || strlen($response) < 30) {
+            $this->logError('Could not get device clock: ' . $response ?? 'No response');
             return null;
         }
 
@@ -881,6 +883,7 @@ class AnvizProtocol
         $response = $this->sendCommand(self::CMD_GET_TCP_IP_PARAMS);
 
         if (!$response || strlen($response) < 50) {
+            $this->logError("Could not get valid TCP/IP parameters: " . $response);;
             return null;
         }
 

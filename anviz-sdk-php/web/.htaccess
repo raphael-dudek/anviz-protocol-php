@@ -1,0 +1,10 @@
+RewriteEngine On
+DirectoryIndex index.php
+
+# Umleitung von /info, /records, /ping auf index.php?action=...
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(info|records|ping|status)$ index.php?action=$1 [QSA,L]
+
+# Falls / gerufen wird, stelle sicher dass index.php genutzt wird
+RewriteRule ^$ index.php [L]
